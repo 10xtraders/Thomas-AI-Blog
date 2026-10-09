@@ -1,96 +1,48 @@
-name: Deploy API
+name: Deploy
 
 on:
   push:
     branches: [master]
     paths:
-      - "apps/api/**"
-      - "packages/shared/**"
-      - ".github/workflows/deploy.yml"
+      - "apps/**"
+      - "packages/**"
       - "ecosystem.config.cjs"
       - "package-lock.json"
       - "package.json"
+      - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
+concurrency: deploy-prod
+
 jobs:
-  deploy-api:
-    runs-on: self-hosted
-    env:
-      NODE_OPTIONS: --max-old-space-size=1536
+  deploy:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-
-      - name: Sync files to server directory
+      - name: Set up SSH
         run: |
-          rsync -av --delete \
-            --exclude node_modules \
-            --exclude .env \
-            --exclude .git \
-            --exclude data \
-            "$GITHUB_WORKSPACE/" /home/server/Apis/thomas-ai-blog/
+          install -m 700 -d ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Install and build
+      - name: Deploy
         run: |
+          ssh deploy@${{ secrets.DEPLOY_HOST }} 'bash -se' <<'EOF'
           set -euo pipefail
-          cd /home/server/Apis/thomas-ai-blog/
-          # if [ ! -x node_modules/.bin/tsc ]; then
-          if [ ! -x node_modules/.bin/tsc ] || [ ! -d node_modules/sharp ]; then
-            nice -n 10 npm ci --no-audit --no-fund
-          else
-            echo "reusing existing node_modules"
-          fi
+          cd /home/deploy/thomas-ai-blog
+          git fetch origin master && git reset --hard origin/master
+          npm ci --no-audit --no-fund
           npm run build --workspace=packages/shared --if-present
           npm run build --workspace=apps/api
+          NEXT_PUBLIC_API_URL=https://api.lisbonyacht.com npm run build --workspace=@ace/admin
+          pm2 reload ecosystem.config.cjs --update-env
+          pm2 save
+          EOF
 
-      - name: Reload PM2
+      - name: Health check
         run: |
-          set -euo pipefail
-          cd /home/server/Apis/thomas-ai-blog/
-          /usr/local/bin/pm2 reload ecosystem.config.cjs --only ace-api || \
-            /usr/local/bin/pm2 start ecosystem.config.cjs --only ace-api
-          /usr/local/bin/pm2 save
-
-      - name: Health smoke
-        run: |
-          set -euo pipefail
-          try_url() {
-            local label="$1"
-            shift
-            local code body
-            body=$(mktemp)
-            code=$(curl -sS -L --max-time 8 -o "$body" -w "%{http_code}" "$@" || echo "000")
-            echo "$label -> $code"
-            if [ "$code" = "200" ] && grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' "$body"; then
-              rm -f "$body"
-              return 0
-            fi
-            head -c 400 "$body" 2>/dev/null || true
-            echo
-            rm -f "$body"
-            return 1
-          }
-
-          ok=0
           for i in $(seq 1 20); do
-            if try_url "local :4010 (attempt $i)" http://127.0.0.1:4010/health; then
-              ok=1
-              break
-            fi
-            sleep 1
+            curl -fsS https://api.lisbonyacht.com/health | grep -q '"ok":true' && echo "api ok" && exit 0
+            sleep 3
           done
-          if [ "$ok" != 1 ]; then
-            echo "::error::API did not become healthy on :4010"
-            /usr/local/bin/pm2 status ace-api || true
-            /usr/local/bin/pm2 logs ace-api --lines 40 --nostream || true
-            exit 1
-          fi
-
-          if try_url "nginx /ai-content/" -H "Host: api.tommlyjumah.dev" http://127.0.0.1/ai-content/health; then
-            echo "nginx ok"
-          else
-            echo "::warning::nginx /ai-content/health failed; local :4010 passed"
-          fi
-          echo "api smoke ok"
+          exit 1
