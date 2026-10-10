@@ -50,12 +50,25 @@ export async function listWpCategories(
   username: string,
   appPassword: string
 ) {
-  return wpFetch(
-    baseUrl,
-    username,
-    appPassword,
-    "/wp/v2/categories?per_page=100"
-  ) as Promise<Array<{ id: number; name: string; slug: string; parent: number }>>;
+  type Cat = { id: number; name: string; slug: string; parent: number };
+  const all: Cat[] = [];
+  for (let page = 1; page <= 20; page++) {
+    let batch: Cat[];
+    try {
+      batch = (await wpFetch(
+        baseUrl,
+        username,
+        appPassword,
+        `/wp/v2/categories?per_page=100&page=${page}`
+      )) as Cat[];
+    } catch (err) {
+      if (page > 1) break; // WP answers 400 for a page past the last one
+      throw err;
+    }
+    all.push(...batch);
+    if (batch.length < 100) break;
+  }
+  return all;
 }
 
 export async function createWpCategory(

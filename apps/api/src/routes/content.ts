@@ -21,7 +21,7 @@ import {
 } from "../services/wordpress";
 import { localizeContent } from "../services/localize";
 import { optimizeForWeb } from "../lib/imageOptimize";
-import { insertInlineImage } from "../lib/inLineImage";
+import { inlineFigure } from "../lib/inLineImage";
 import { proposeOptimization } from "../services/optimize";
 
 type PublishOpts = {
@@ -56,8 +56,18 @@ async function runPublish(
     content.category?.wpCategoryId != null
       ? [content.category.wpCategoryId]
       : [];
+  // Page order the client asked for: H1 -> main image -> summary paragraph -> full text.
+  // Switch the H1 off per site with the business fact:  h1_in_content: off
+  const h1Fact = await prisma.businessFact.findFirst({
+    where: { siteId: content.site.id, key: "h1_in_content" },
+  });
+  const withH1 = !(h1Fact && /^(off|no|false|none)$/i.test(h1Fact.value.trim()));
+  const escHtml = (t: string) =>
+    t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  let heroFigure = "";
+
   let html = [
-    content.bodyHtml,
+    content.bodyHtml.replace(/<h1\b[\s\S]*?<\/h1>\s*/gi, ""),
     content.schemaJson
       ? `<script type="application/ld+json">${JSON.stringify(content.schemaJson)}</script>`
       : "",
@@ -151,8 +161,7 @@ async function runPublish(
           },
         );
         if (m2.source_url) {
-          html = insertInlineImage(
-            html,
+          heroFigure = inlineFigure(
             m2.source_url,
             content.focusKeyword || content.title,
           );
@@ -187,7 +196,13 @@ async function runPublish(
     auth.appPassword,
     {
       title: content.seoTitle || content.title,
-      content: html,
+      content: [
+        withH1 ? `<h1>${escHtml(content.title)}</h1>` : "",
+        heroFigure,
+        html,
+      ]
+        .filter(Boolean)
+        .join("\n"),
       categories,
       status: body.status ?? "draft",
       featuredMediaId,

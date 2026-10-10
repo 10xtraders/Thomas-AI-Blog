@@ -54,14 +54,18 @@ export type GenerateOptions = {
   onStage?: (stage: StageUpdate) => void;
 };
 
-const SYSTEM_JSON = `You are an elite magazine-level SEO blog writer and editor (think Condé Nast Traveler / specialist industry longform — not a thin AI outline).
+const SYSTEM_JSON = `You are an expert SEO blog writer and editor for a business blog. You write clear, practical, plain-spoken articles that help the reader decide and act — not travel-magazine prose and not a thin AI outline.
 
 Return ONLY valid JSON with keys:
 title, bodyHtml, focusKeyword, seoTitle, metaDescription, slug, schemaJson (BlogPosting), imagePrompt (vivid English photo brief).
 
 WRITING STANDARD — mandatory:
-- Master-level prose: vivid, sensory, authoritative, fluent. Varied sentence rhythm. No robotic filler, no "In today's world".
-- VERBOSE longform: 1,400–2,200+ words in bodyHtml. Deep sections, not bullet dumps alone.
+- TONE comes from the brief. If the brief contains tone/style guidelines they are BINDING and override every other style hint in this prompt. Default when the brief says nothing: simple, casual, clear, informative, practical.
+- Write like a knowledgeable local explaining things to a friend: short plain sentences, concrete details (steps, options, what to ask, what to expect) instead of imagery. Natural, not stiff, not salesy.
+- FORBIDDEN style: poetic, romantic, dreamy, dramatic or hype language; metaphors and similes; scene-setting openings ("Imagine…", "Picture this…", "There's something magical about…", "Step aboard…"). Never use words like: tapestry, nestled, embark, unforgettable, magical, dreamy, breathtaking, sun-kissed, whisper, symphony, journey (as a metaphor), ultimate, unparalleled, "golden hour".
+- Opening: the first paragraph states plainly what the article covers and what the reader will get — a direct, practical statement or question. No atmosphere, no storytelling.
+- Longform: 1,400–2,200+ words in bodyHtml, filled with useful concrete detail rather than ornament. Deep sections, not bullet dumps alone.
+- bodyHtml MUST start with a short summary paragraph (2–3 plain sentences that give the answer in brief and contain the exact focusKeyword), written as <p class="post-summary">…</p>, BEFORE any heading. After it comes the full article. Do NOT include an <h1> (the page title is added separately).
 - Semantic HTML only: h2/h3, p, ul/ol, blockquote when it fits, optional short FAQ.
 - Locale: fully idiomatic in the requested language (en/pt/fr).
 - Facts: do NOT invent prices, guarantees, licenses, phone numbers, or business claims not in the brief.
@@ -74,14 +78,14 @@ RANK MATH — exact-phrase tests (this is how the plugin scores 0–100):
 - metaDescription: 140–160 characters, includes focusKeyword once.
 - slug: kebab-case of focusKeyword only (e.g. family-yacht-charter-lisbon).
 - First 100 words of bodyHtml must include focusKeyword.
-- Include at least 3 internal <a href> links chosen from site.linkTargets (they are already in the article's language; never invent URLs or link to another language's pages).
+- Internal links: choose 3–5 <a href> links from site.linkTargets, but ONLY pages that are topically relevant to this article and genuinely useful to its reader (same subject or a natural next step). Skip targets about a different service or audience, even if that means fewer than 3 links. Never invent URLs and never link to another language's pages.
 - External links: only if site.linkPolicy.externalLinks is true, at most 1, to an authoritative non-commercial source (government, tourism board, regulator, Wikipedia). NEVER link to, or recommend by name, any domain in site.linkPolicy.blockedDomains or any business that competes with this site (other charter/rental/service companies in the same niche). If in doubt, do not link out.
 - Do not skip the keyword because a fancier synonym “sounds better” — Rank Math only counts the exact string.
 
 STRUCTURE VARIETY — critical (do NOT reuse a template):
 - Every article must feel uniquely shaped for THIS site + topic. Never copy a fixed skeleton like Hook → Overview → Tips → FAQ → CTA for every post.
-- Pick a fresh angle and outline each time (examples to rotate among — invent others too): narrative journey; myth-busting; comparison; seasonal playbook; checklist-led with rich prose; interview-style Q&A woven into narrative; "day in the life"; mistake autopsy; local insider guide; decision framework.
-- Vary section count, heading voice, whether FAQ appears, whether lists appear early or late, opening device (scene / question / bold claim / anecdote).
+- Pick a fresh angle and outline each time (examples to rotate among — invent others too): myth-busting; comparison; seasonal or occasion playbook; checklist-led practical guide; question-and-answer guide; mistake autopsy; local insider tips; decision framework.
+- Vary section count, heading voice, whether FAQ appears, whether lists appear early or late, opening device (direct statement / practical question / concrete fact — never a scene or anecdote).
 - Match voice to the site context when provided (yacht charter luxury leisure ≠ corporate renovation blog). Same platform, different souls.
 - If brief/site notes exist, let them bend tone and structure.
 
@@ -106,14 +110,14 @@ function userPayload(
   } | null,
 ) {
   const shapes = [
-    "narrative journey with sensory scenes",
+    "step-by-step practical guide",
     "myth-busting expert teardown",
     "comparison / decision framework",
-    "seasonal or occasion playbook",
-    "insider local guide",
+    "seasonal or occasion planning checklist",
+    "insider local tips",
     "mistake autopsy + fixes",
-    "day-in-the-life itinerary prose",
-    "checklist wrapped in magazine storytelling",
+    "question-and-answer guide",
+    "options and what-to-ask explainer",
   ];
   const shape = shapes[Math.floor(Math.random() * shapes.length)];
 
@@ -121,6 +125,9 @@ function userPayload(
     title,
     language,
     brief: brief ?? null,
+    briefInstruction: brief
+      ? "The brief is binding. Follow its tone and style rules strictly; if they conflict with any default style guidance, the brief wins."
+      : null,
     site: site
       ? {
           name: site.name ?? null,
@@ -132,7 +139,7 @@ function userPayload(
           factsInstruction:
             "Use ONLY these approved business facts. Never invent prices, phones, licenses, guarantees, or services not listed.",
           linkingInstruction:
-            "Where natural, insert 3–5 contextual <a href> links to linkTargets using varied anchor text. Do not dump a link list.",
+            "linkTargets are ranked by topical relevance. Insert contextual <a href> links (aim for 3–5) ONLY to targets that match this article's topic and help its reader; skip any that are about a different service or audience. Use natural, varied anchor text. Do not dump a link list and never add a link just to reach a count.",
         }
       : null,
     research: research
@@ -146,8 +153,8 @@ function userPayload(
       : null,
     requirements: {
       minWords: 1400,
-      tone: "master-level longform blog",
-      depth: "expert, practical, immersive",
+      tone: "plain, casual, clear, informative — follow the brief's tone rules exactly; no poetic or dramatic language",
+      depth: "expert, practical, concrete",
       structuralDirection: shape,
       uniqueness:
         "Invent a structure that fits this site and topic; do not reuse a generic template.",
@@ -272,7 +279,7 @@ async function openaiArticle(
           body: JSON.stringify({
             model: requestedModel,
             response_format: { type: "json_object" },
-            temperature: 0.9,
+            temperature: 0.6,
             max_tokens: 8000,
             stream: true,
             messages: [
@@ -411,7 +418,7 @@ async function geminiArticle(
                 ],
                 generationConfig: {
                   responseMimeType: "application/json",
-                  temperature: 0.9,
+                  temperature: 0.6,
                   // Thinking models count reasoning tokens against this budget;
                   // 8192 can truncate the JSON mid-stream.
                   maxOutputTokens: 16384,

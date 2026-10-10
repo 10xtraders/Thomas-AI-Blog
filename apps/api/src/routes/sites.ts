@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { encryptSecret } from "../lib/secrets";
+import { syncCategories } from "../services/scanner";
 
 const createSiteSchema = z.object({
   name: z.string().min(1),
@@ -80,6 +81,15 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     const { id } = req.params as { id: string };
     const site = await prisma.site.findUnique({ where: { id } });
     if (!site) return reply.code(404).send({ error: "Site not found" });
+    // ?refresh=1 pulls the latest categories from WordPress first (renames, removals).
+    // If WP is unreachable we fall back to the cached list instead of failing.
+    if ((req.query as { refresh?: string }).refresh) {
+      try {
+        await syncCategories(site);
+      } catch (err) {
+        req.log.warn({ err }, "category refresh from WordPress failed; using cached list");
+      }
+    }
     const categories = await prisma.category.findMany({
       where: { siteId: id },
       orderBy: { name: "asc" },

@@ -12,7 +12,7 @@ export type LinkPolicy = {
   allowExternal: boolean;
 };
 
-export const LINK_POLICY_FACT_KEYS = ["blocked_domains", "competitors", "external_links"];
+export const LINK_POLICY_FACT_KEYS = ["blocked_domains", "competitors", "external_links", "h1_in_content"];
 
 const norm = (h: string) => h.toLowerCase().trim().replace(/^www\./, "");
 
