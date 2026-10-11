@@ -273,7 +273,7 @@ export default function DashboardPage() {
       return;
     }
     api<{ categories: Array<{ id: string; name: string }> }>(
-      `/sites/${createSiteId}/categories`,
+      `/sites/${createSiteId}/categories?refresh=1`,
     )
       .then((d) => setCreateCategories(d.categories ?? []))
       .catch(() => setCreateCategories([]));
