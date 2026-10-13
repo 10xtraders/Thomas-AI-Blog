@@ -38,7 +38,8 @@ export default function SitesPage() {
     setBusy(true);
     setMsg("");
     setOk(null);
-    const fd = new FormData(e.currentTarget);
+    const form = e.currentTarget; // keep a reference: currentTarget is null after an await
+    const fd = new FormData(form);
     const payload = {
       name: String(fd.get("name") ?? ""),
       baseUrl: String(fd.get("baseUrl") ?? ""),
@@ -67,7 +68,7 @@ export default function SitesPage() {
         }${scanJson.orphanCount ? ` (${scanJson.orphanCount} orphan pages found)` : ""}.`
       );
       setShowAdd(false);
-      e.currentTarget.reset();
+      form.reset();
       await load();
     } catch (err) {
       setOk(false);
