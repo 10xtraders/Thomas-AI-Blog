@@ -62,6 +62,12 @@ async function runPublish(
     where: { siteId: content.site.id, key: "h1_in_content" },
   });
   const withH1 = !(h1Fact && /^(off|no|false|none)$/i.test(h1Fact.value.trim()));
+  // Themes that already show the featured image above the post switch the copy in the body off:
+  // image_in_content: off
+  const imageFact = await prisma.businessFact.findFirst({
+    where: { siteId: content.site.id, key: "image_in_content" },
+  });
+  const withInlineImage = !(imageFact && /^(off|no|false|none)$/i.test(imageFact.value.trim()));
   const escHtml = (t: string) =>
     t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   let heroFigure = "";
@@ -133,56 +139,10 @@ async function runPublish(
     onStage({ pct: 70, label: "Skipping image (turned off)" });
   }
 
-  // Second image for the main content area (client brief: featured + 1 inline)
-  if (body.withImage !== false && featuredMediaId) {
-    try {
-      onStage({ pct: 80, label: "Creating in-article image…" });
-      const heading = [
-        ...content.bodyHtml.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi),
-      ]
-        .map((m) => m[1].replace(/<[^>]+>/g, "").trim())
-        .find(Boolean);
-      const inlinePrompt = `In-article editorial photo for a blog post titled "${content.title}"${
-        heading ? `, illustrating the section "${heading}"` : ""
-      }. Different scene and composition from the featured image. Natural light, documentary look.`;
-      const inl = await generateFeaturedImageBytes(inlinePrompt, onStage);
-      if (inl) {
-        const web2 = await optimizeForWeb(inl.bytes, inl.mime);
-        const m2 = await uploadWpMedia(
-          auth.baseUrl,
-          auth.username,
-          auth.appPassword,
-          {
-            bytes: web2.bytes,
-            filename: `${content.slug || "inline"}-inline-${Date.now()}.${web2.ext}`,
-            mime: web2.mime,
-            alt: content.focusKeyword || content.title,
-            title: `${content.title} (inline)`,
-          },
-        );
-        if (m2.source_url) {
-          heroFigure = inlineFigure(
-            m2.source_url,
-            content.focusKeyword || content.title,
-          );
-        }
-        await prisma.aiUsage.create({
-          data: {
-            contentId: content.id,
-            provider: inl.provider,
-            model: inl.model,
-            operation: "generate_image",
-            estimatedUsd: inl.provider === "openai" ? 0.04 : 0.02,
-          },
-        });
-      }
-    } catch (err) {
-      console.warn(
-        "[inline image] skipped:",
-        err instanceof Error ? err.message : err,
-      );
-      onStage({ label: "Skipping in-article image — continuing" });
-    }
+  // One image serves as both the featured image and the main post image (client brief, Oct 15):
+  // a second generation only cost credits and showed two different pictures.
+  if (withInlineImage && media?.source_url) {
+    heroFigure = inlineFigure(media.source_url, content.focusKeyword || content.title);
   }
 
   if (body.withImage !== false && !featuredMediaId && !imageError) {
@@ -195,7 +155,8 @@ async function runPublish(
     auth.username,
     auth.appPassword,
     {
-      title: content.seoTitle || content.title,
+      // The page title and the H1 are the same text; the SEO title stays in Rank Math.
+      title: content.title,
       content: [
         withH1 ? `<h1>${escHtml(content.title)}</h1>` : "",
         heroFigure,
